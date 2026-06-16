@@ -32,8 +32,8 @@ Built by [MegaNode ]([https://meganode.top/] — an independent Celestia validat
 ## Installation
 
 ```bash
-git clone https://github.com/<your-username>/celestia-node-tool.git
-cd celestia-node-tool
+git clone https://github.com/mega-node/celestia-validator-tool.git
+cd celestia-validator-tool
 chmod +x celestia-tool.sh
 sudo bash celestia-tool.sh
 ```
@@ -41,7 +41,7 @@ sudo bash celestia-tool.sh
 Or one-liner:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/<your-username>/celestia-node-tool/main/celestia-tool.sh -o celestia-tool.sh && chmod +x celestia-tool.sh && sudo bash celestia-tool.sh
+curl -sSL https://raw.githubusercontent.com/mega-node/celestia-validator-tool/main/celestia-tool.sh -o celestia-tool.sh && chmod +x celestia-tool.sh && sudo bash celestia-tool.sh
 ```
 
 ## Usage
