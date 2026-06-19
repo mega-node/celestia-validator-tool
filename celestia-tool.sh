@@ -27,6 +27,7 @@ PUBLIC_RPC=""
 APP_HOME="$HOME/.celestia-app"
 SERVICE_NAME="celestia-appd"
 SNAPSHOT_BASE_URL=""
+CELESTIA_BIN=""
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -124,6 +125,54 @@ select_network() {
     fi
 
     LOCAL_RPC="http://localhost:${RPC_PORT}"
+
+    # Test local RPC connection
+    local test_result
+    test_result=$(curl -s --connect-timeout 3 --max-time 5 "${LOCAL_RPC}/status" 2>/dev/null || echo "")
+    if [ -z "$test_result" ] || ! echo "$test_result" | jq -e '.result' &>/dev/null; then
+        print_warn "Cannot connect to local RPC at ${LOCAL_RPC}"
+        
+        # Try common alternative ports
+        local found_port=""
+        for try_port in 26657 26667 36657 46657 11657 26680; do
+            local try_result
+            try_result=$(curl -s --connect-timeout 2 --max-time 3 "http://localhost:${try_port}/status" 2>/dev/null || echo "")
+            if [ -n "$try_result" ] && echo "$try_result" | jq -e '.result' &>/dev/null; then
+                found_port="$try_port"
+                break
+            fi
+        done
+
+        if [ -n "$found_port" ]; then
+            RPC_PORT="$found_port"
+            LOCAL_RPC="http://localhost:${RPC_PORT}"
+            print_success "Found RPC at port ${found_port}"
+        else
+            echo ""
+            read -rp "$(echo -e ${CYAN}'Enter your local RPC port (or press Enter to use public RPC only): '${NC})" manual_port
+            if [ -n "$manual_port" ]; then
+                RPC_PORT="$manual_port"
+                LOCAL_RPC="http://localhost:${RPC_PORT}"
+            else
+                LOCAL_RPC="$PUBLIC_RPC"
+                print_warn "Using public RPC — some features (validator info, local sync) will be limited"
+            fi
+        fi
+    else
+        print_success "Local RPC connected at ${LOCAL_RPC}"
+    fi
+
+    # Auto-detect celestia-appd binary path
+    CELESTIA_BIN=""
+    if command -v celestia-appd &>/dev/null; then
+        CELESTIA_BIN="celestia-appd"
+    elif [ -f "/root/go/bin/celestia-appd" ]; then
+        CELESTIA_BIN="/root/go/bin/celestia-appd"
+    elif [ -f "$HOME/go/bin/celestia-appd" ]; then
+        CELESTIA_BIN="$HOME/go/bin/celestia-appd"
+    elif [ -f "/usr/local/bin/celestia-appd" ]; then
+        CELESTIA_BIN="/usr/local/bin/celestia-appd"
+    fi
 
     # Auto-detect service name
     if ! systemctl list-units --full --all 2>/dev/null | grep -q "^${SERVICE_NAME}.service"; then
@@ -270,24 +319,25 @@ validator_info() {
 
     # Validator key from local binary
     echo -e "\n${BOLD}Local Keys:${NC}"
-    if command -v celestia-appd &>/dev/null && [ -d "$APP_HOME" ]; then
+    if [ -n "$CELESTIA_BIN" ] && [ -d "$APP_HOME" ]; then
         local valkey_addr
-        valkey_addr=$(celestia-appd tendermint show-validator --home "$APP_HOME" 2>/dev/null || echo "")
+        valkey_addr=$($CELESTIA_BIN tendermint show-validator --home "$APP_HOME" 2>/dev/null || echo "")
         if [ -n "$valkey_addr" ]; then
             echo -e "  ${BOLD}Validator Pubkey:${NC} $valkey_addr"
         else
-            echo -e "  ${BOLD}Validator Pubkey:${NC} ${YELLOW}N/A (binary not available or key not found)${NC}"
+            echo -e "  ${BOLD}Validator Pubkey:${NC} ${YELLOW}N/A (key not found)${NC}"
         fi
 
         local node_id
-        node_id=$(celestia-appd tendermint show-node-id --home "$APP_HOME" 2>/dev/null || echo "")
+        node_id=$($CELESTIA_BIN tendermint show-node-id --home "$APP_HOME" 2>/dev/null || echo "")
         if [ -n "$node_id" ]; then
             echo -e "  ${BOLD}Node ID:${NC} $node_id"
         else
             echo -e "  ${BOLD}Node ID:${NC} ${YELLOW}N/A${NC}"
         fi
     else
-        echo -e "  ${YELLOW}celestia-appd not found in PATH or APP_HOME not found${NC}"
+        echo -e "  ${YELLOW}celestia-appd not found or APP_HOME ($APP_HOME) not found${NC}"
+        echo -e "  ${YELLOW}Checked: /root/go/bin/, \$HOME/go/bin/, /usr/local/bin/, PATH${NC}"
     fi
 
     # RPC info
@@ -523,8 +573,15 @@ soft_reset() {
     cp "$APP_HOME/data/priv_validator_state.json" "$APP_HOME/priv_validator_state.json.backup"
 
     print_info "Running unsafe-reset-all..."
-    celestia-appd tendermint unsafe-reset-all --home "$APP_HOME" 2>/dev/null || \
-        celestia-appd unsafe-reset-all --home "$APP_HOME" 2>/dev/null
+    if [ -n "$CELESTIA_BIN" ]; then
+        $CELESTIA_BIN tendermint unsafe-reset-all --home "$APP_HOME" 2>/dev/null || \
+            $CELESTIA_BIN unsafe-reset-all --home "$APP_HOME" 2>/dev/null || \
+            print_error "unsafe-reset-all failed"
+    else
+        print_error "celestia-appd binary not found. Cannot run unsafe-reset-all."
+        press_enter
+        return
+    fi
 
     print_info "Updating persistent_peers..."
     sed -i.bak -e "s/^persistent_peers *=.*/persistent_peers = \"$peers\"/" "$APP_HOME/config/config.toml"
@@ -694,8 +751,14 @@ env_check() {
     echo -e "\n${BOLD}RPC/P2P Ports:${NC}"
     grep -E "^laddr" "$APP_HOME/config/config.toml" 2>/dev/null | sed 's/^/  /'
 
-    echo -e "\n${BOLD}Binary Version:${NC}"
-    celestia-appd version 2>/dev/null | sed 's/^/  /' || echo "  N/A"
+    echo -e "\n${BOLD}Binary:${NC}"
+    if [ -n "$CELESTIA_BIN" ]; then
+        echo -e "  Path: $CELESTIA_BIN"
+        echo -n "  Version: "
+        $CELESTIA_BIN version 2>/dev/null || echo "N/A"
+    else
+        echo -e "  ${YELLOW}celestia-appd not found${NC}"
+    fi
 
     echo -e "\n${BOLD}System:${NC}"
     echo -e "  Hostname: $(hostname)"
