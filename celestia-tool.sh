@@ -212,7 +212,7 @@ quick_status() {
     if [ -n "$sync_info" ] && echo "$sync_info" | jq -e '.result' &>/dev/null; then
         local height catching_up node_id block_time
         height=$(echo "$sync_info" | jq -r '.result.sync_info.latest_block_height // "N/A"' 2>/dev/null)
-        catching_up=$(echo "$sync_info" | jq -r '.result.sync_info.catching_up // "unknown"' 2>/dev/null)
+        catching_up=$(echo "$sync_info" | jq -r 'if .result.sync_info.catching_up then "true" else "false" end' 2>/dev/null || echo "unknown")
         node_id=$(echo "$sync_info" | jq -r '.result.node_info.id // "N/A"' 2>/dev/null)
         block_time=$(echo "$sync_info" | jq -r '.result.sync_info.latest_block_time // "N/A"' 2>/dev/null | cut -d'.' -f1)
         echo -e "  Height: ${GREEN}${height}${NC}"
@@ -271,7 +271,7 @@ sync_check() {
     fi
 
     local_height=$(echo "$local_info" | jq -r '.result.sync_info.latest_block_height // "N/A"' 2>/dev/null)
-    local_catching_up=$(echo "$local_info" | jq -r '.result.sync_info.catching_up // "unknown"' 2>/dev/null)
+    local_catching_up=$(echo "$local_info" | jq -r 'if .result.sync_info.catching_up then "true" else "false" end' 2>/dev/null || echo "unknown")
     local_block_time=$(echo "$local_info" | jq -r '.result.sync_info.latest_block_time // "N/A"' 2>/dev/null | cut -d'.' -f1)
 
     local network_info network_height
