@@ -6,7 +6,7 @@
 #              (Mainnet / Mocha Testnet)
 # ============================================================
 
-set -e
+set +e  # Don't exit on errors - handle them gracefully
 
 # Colors
 RED='\033[0;31m'
@@ -64,7 +64,9 @@ press_enter() {
 rpc_call() {
     local url="$1"
     local endpoint="$2"
-    curl -s --connect-timeout 5 --max-time 10 "${url}${endpoint}" 2>/dev/null
+    local result
+    result=$(curl -s --connect-timeout 10 --max-time 20 "${url}${endpoint}" 2>/dev/null) || result=""
+    echo "$result"
 }
 
 # ============================================================
@@ -158,12 +160,14 @@ quick_status() {
     echo -e "\n${BOLD}Sync Info:${NC}"
     local sync_info
     sync_info=$(rpc_call "$LOCAL_RPC" "/status")
-    if [ -n "$sync_info" ]; then
-        local height catching_up node_id
-        height=$(echo "$sync_info" | jq -r '.result.sync_info.latest_block_height' 2>/dev/null)
-        catching_up=$(echo "$sync_info" | jq -r '.result.sync_info.catching_up' 2>/dev/null)
-        node_id=$(echo "$sync_info" | jq -r '.result.node_info.id' 2>/dev/null)
-        echo -e "  Height: ${GREEN}${height:-N/A}${NC}"
+    if [ -n "$sync_info" ] && echo "$sync_info" | jq -e '.result' &>/dev/null; then
+        local height catching_up node_id block_time
+        height=$(echo "$sync_info" | jq -r '.result.sync_info.latest_block_height // "N/A"' 2>/dev/null)
+        catching_up=$(echo "$sync_info" | jq -r '.result.sync_info.catching_up // "unknown"' 2>/dev/null)
+        node_id=$(echo "$sync_info" | jq -r '.result.node_info.id // "N/A"' 2>/dev/null)
+        block_time=$(echo "$sync_info" | jq -r '.result.sync_info.latest_block_time // "N/A"' 2>/dev/null | cut -d'.' -f1)
+        echo -e "  Height: ${GREEN}${height}${NC}"
+        echo -e "  Block Time: ${block_time}"
         if [ "$catching_up" = "false" ]; then
             echo -e "  Status: ${GREEN}✓ Synced${NC}"
         elif [ "$catching_up" = "true" ]; then
@@ -171,7 +175,7 @@ quick_status() {
         else
             echo -e "  Status: ${RED}Unable to determine${NC}"
         fi
-        echo -e "  Node ID: ${node_id:-N/A}"
+        echo -e "  Node ID: ${node_id}"
     else
         echo -e "  ${RED}Cannot connect to local RPC ($LOCAL_RPC)${NC}"
     fi
@@ -179,9 +183,11 @@ quick_status() {
     echo -e "\n${BOLD}Network:${NC}"
     local net_info n_peers
     net_info=$(rpc_call "$LOCAL_RPC" "/net_info")
-    if [ -n "$net_info" ]; then
-        n_peers=$(echo "$net_info" | jq -r '.result.n_peers' 2>/dev/null)
-        echo -e "  Peers: ${n_peers:-N/A}"
+    if [ -n "$net_info" ] && echo "$net_info" | jq -e '.result' &>/dev/null; then
+        n_peers=$(echo "$net_info" | jq -r '.result.n_peers // "N/A"' 2>/dev/null)
+        echo -e "  Peers: ${n_peers}"
+    else
+        echo -e "  Peers: ${YELLOW}N/A${NC}"
     fi
 
     echo -e "\n${BOLD}Resources:${NC}"
@@ -203,32 +209,54 @@ sync_check() {
     echo -e "${BOLD}⬡ Sync Verification [${NETWORK}]${NC}"
     print_separator
 
-    print_info "Fetching local status..."
-    local local_info local_height local_catching_up
-    local_info=$(rpc_call "$LOCAL_RPC" "/status")
-    local_height=$(echo "$local_info" | jq -r '.result.sync_info.latest_block_height' 2>/dev/null)
-    local_catching_up=$(echo "$local_info" | jq -r '.result.sync_info.catching_up' 2>/dev/null)
+    echo -e "\n${BOLD}Fetching data...${NC}"
 
-    print_info "Fetching network reference height..."
+    local local_info local_height local_catching_up local_block_time
+    local_info=$(rpc_call "$LOCAL_RPC" "/status" 2>/dev/null || echo "")
+
+    if [ -z "$local_info" ] || ! echo "$local_info" | jq -e '.result' &>/dev/null; then
+        print_error "Cannot connect to local RPC ($LOCAL_RPC)"
+        print_warn "Check if $SERVICE_NAME is running: systemctl status $SERVICE_NAME"
+        press_enter
+        return
+    fi
+
+    local_height=$(echo "$local_info" | jq -r '.result.sync_info.latest_block_height // "N/A"' 2>/dev/null)
+    local_catching_up=$(echo "$local_info" | jq -r '.result.sync_info.catching_up // "unknown"' 2>/dev/null)
+    local_block_time=$(echo "$local_info" | jq -r '.result.sync_info.latest_block_time // "N/A"' 2>/dev/null | cut -d'.' -f1)
+
     local network_info network_height
-    network_info=$(rpc_call "$PUBLIC_RPC" "/status")
-    network_height=$(echo "$network_info" | jq -r '.result.sync_info.latest_block_height' 2>/dev/null)
+    network_info=$(rpc_call "$PUBLIC_RPC" "/status" 2>/dev/null || echo "")
+    if [ -n "$network_info" ] && echo "$network_info" | jq -e '.result' &>/dev/null; then
+        network_height=$(echo "$network_info" | jq -r '.result.sync_info.latest_block_height // "N/A"' 2>/dev/null)
+    else
+        network_height="N/A (public RPC unreachable)"
+    fi
 
     echo ""
-    echo -e "  ${BOLD}Local Height:${NC}   ${CYAN}${local_height:-N/A}${NC}"
-    echo -e "  ${BOLD}Network Height:${NC} ${CYAN}${network_height:-N/A}${NC}"
+    echo -e "  ${BOLD}Local Height:${NC}     ${CYAN}${local_height}${NC}"
+    echo -e "  ${BOLD}Local Block Time:${NC} ${local_block_time}"
+    echo -e "  ${BOLD}Network Height:${NC}   ${CYAN}${network_height}${NC}"
 
     if [[ "$local_height" =~ ^[0-9]+$ ]] && [[ "$network_height" =~ ^[0-9]+$ ]]; then
         local diff=$((network_height - local_height))
-        echo -e "  ${BOLD}Diff:${NC}           ${diff} blocks"
-    fi
+        echo -e "  ${BOLD}Diff:${NC}             ${diff} blocks"
 
-    if [ "$local_catching_up" = "false" ]; then
-        echo -e "  ${BOLD}Status:${NC}         ${GREEN}✓ FULLY SYNCED${NC}"
-    elif [ "$local_catching_up" = "true" ]; then
-        echo -e "  ${BOLD}Status:${NC}         ${YELLOW}⏳ Catching up...${NC}"
+        if [ "$diff" -le 5 ] && [ "$diff" -ge -100 ]; then
+            echo -e "  ${BOLD}Status:${NC}           ${GREEN}✓ FULLY SYNCED${NC}"
+        elif [ "$diff" -gt 5 ] && [ "$diff" -le 100 ]; then
+            echo -e "  ${BOLD}Status:${NC}           ${YELLOW}⏳ Almost synced (${diff} blocks behind)${NC}"
+        else
+            echo -e "  ${BOLD}Status:${NC}           ${RED}⏳ Syncing... (${diff} blocks behind)${NC}"
+        fi
     else
-        echo -e "  ${BOLD}Status:${NC}         ${RED}Cannot determine${NC}"
+        if [ "$local_catching_up" = "false" ]; then
+            echo -e "  ${BOLD}Status:${NC}           ${GREEN}✓ FULLY SYNCED${NC}"
+        elif [ "$local_catching_up" = "true" ]; then
+            echo -e "  ${BOLD}Status:${NC}           ${YELLOW}⏳ Catching up...${NC}"
+        else
+            echo -e "  ${BOLD}Status:${NC}           ${RED}Cannot determine (public RPC issue)${NC}"
+        fi
     fi
 
     press_enter
@@ -240,39 +268,74 @@ validator_info() {
     echo -e "${BOLD}⬡ Validator Info [${NETWORK}]${NC}"
     print_separator
 
-    if [ -d "$APP_HOME" ]; then
-        print_info "Checking validator key..."
+    # Validator key from local binary
+    echo -e "\n${BOLD}Local Keys:${NC}"
+    if command -v celestia-appd &>/dev/null && [ -d "$APP_HOME" ]; then
         local valkey_addr
-        valkey_addr=$(celestia-appd tendermint show-validator --home "$APP_HOME" 2>/dev/null)
+        valkey_addr=$(celestia-appd tendermint show-validator --home "$APP_HOME" 2>/dev/null || echo "")
         if [ -n "$valkey_addr" ]; then
             echo -e "  ${BOLD}Validator Pubkey:${NC} $valkey_addr"
+        else
+            echo -e "  ${BOLD}Validator Pubkey:${NC} ${YELLOW}N/A (binary not available or key not found)${NC}"
         fi
 
         local node_id
-        node_id=$(celestia-appd tendermint show-node-id --home "$APP_HOME" 2>/dev/null)
+        node_id=$(celestia-appd tendermint show-node-id --home "$APP_HOME" 2>/dev/null || echo "")
         if [ -n "$node_id" ]; then
             echo -e "  ${BOLD}Node ID:${NC} $node_id"
-        fi
-    fi
-
-    local status_info validator_addr voting_power
-    status_info=$(rpc_call "$LOCAL_RPC" "/status")
-    validator_addr=$(echo "$status_info" | jq -r '.result.validator_info.address' 2>/dev/null)
-    voting_power=$(echo "$status_info" | jq -r '.result.validator_info.voting_power' 2>/dev/null)
-
-    echo -e "\n${BOLD}From RPC:${NC}"
-    echo -e "  ${BOLD}Address:${NC} ${validator_addr:-N/A}"
-    echo -e "  ${BOLD}Voting Power:${NC} ${voting_power:-N/A}"
-
-    if [ -n "$validator_addr" ] && [ "$validator_addr" != "null" ]; then
-        local found
-        found=$(rpc_call "$LOCAL_RPC" "/validators?per_page=200" | jq -r --arg addr "$validator_addr" '.result.validators[] | select(.address==$addr) | .address' 2>/dev/null)
-        if [ -n "$found" ]; then
-            echo -e "  ${BOLD}Active Set:${NC} ${GREEN}✓ Yes${NC}"
         else
-            echo -e "  ${BOLD}Active Set:${NC} ${YELLOW}Not in current page / Not active${NC}"
+            echo -e "  ${BOLD}Node ID:${NC} ${YELLOW}N/A${NC}"
         fi
+    else
+        echo -e "  ${YELLOW}celestia-appd not found in PATH or APP_HOME not found${NC}"
     fi
+
+    # RPC info
+    echo -e "\n${BOLD}From RPC:${NC}"
+    local status_info
+    status_info=$(rpc_call "$LOCAL_RPC" "/status" 2>/dev/null || echo "")
+
+    if [ -z "$status_info" ] || ! echo "$status_info" | jq -e '.result' &>/dev/null; then
+        print_error "Cannot connect to local RPC ($LOCAL_RPC)"
+        press_enter
+        return
+    fi
+
+    local validator_addr voting_power moniker chain_id_rpc
+    validator_addr=$(echo "$status_info" | jq -r '.result.validator_info.address // "N/A"' 2>/dev/null)
+    voting_power=$(echo "$status_info" | jq -r '.result.validator_info.voting_power // "0"' 2>/dev/null)
+    moniker=$(echo "$status_info" | jq -r '.result.node_info.moniker // "N/A"' 2>/dev/null)
+    chain_id_rpc=$(echo "$status_info" | jq -r '.result.node_info.network // "N/A"' 2>/dev/null)
+
+    echo -e "  ${BOLD}Moniker:${NC}      ${moniker}"
+    echo -e "  ${BOLD}Chain ID:${NC}     ${chain_id_rpc}"
+    echo -e "  ${BOLD}Address:${NC}      ${validator_addr}"
+    echo -e "  ${BOLD}Voting Power:${NC} ${voting_power}"
+
+    # Active set check
+    echo -e "\n${BOLD}Active Set:${NC}"
+    if [ -n "$validator_addr" ] && [ "$validator_addr" != "null" ] && [ "$validator_addr" != "N/A" ]; then
+        if [ "$voting_power" != "0" ] && [ -n "$voting_power" ]; then
+            echo -e "  ${GREEN}✓ In active validator set (voting power: ${voting_power})${NC}"
+        else
+            echo -e "  ${YELLOW}✗ Not in active set (voting power: 0)${NC}"
+        fi
+
+        # Count total validators
+        local val_info total_vals
+        val_info=$(rpc_call "$LOCAL_RPC" "/validators?per_page=1" 2>/dev/null || echo "")
+        total_vals=$(echo "$val_info" | jq -r '.result.total // "N/A"' 2>/dev/null)
+        echo -e "  ${BOLD}Total Validators:${NC} ${total_vals}"
+    else
+        echo -e "  ${RED}Cannot determine (no validator address)${NC}"
+    fi
+
+    # Peers
+    echo -e "\n${BOLD}Peers:${NC}"
+    local net_info n_peers
+    net_info=$(rpc_call "$LOCAL_RPC" "/net_info" 2>/dev/null || echo "")
+    n_peers=$(echo "$net_info" | jq -r '.result.n_peers // "N/A"' 2>/dev/null)
+    echo -e "  Connected: ${n_peers}"
 
     press_enter
 }
