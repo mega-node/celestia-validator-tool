@@ -3,6 +3,7 @@
 A comprehensive CLI tool for managing Celestia consensus node operations on both **Mainnet** and **Mocha Testnet**.
 
 Built by [MegaNode ]([https://meganode.top/] — an independent Celestia validator operator.
+<img width="583" height="257" alt="Screenshot 2026-06-21 104427" src="https://github.com/user-attachments/assets/c3260409-8f4b-45bd-9178-0e451072812e" />
 
 ## Features
 
@@ -75,6 +76,7 @@ curl -sSL https://raw.githubusercontent.com/mega-node/celestia-validator-tool/ma
    s)  Switch Network
    0)  Exit
 ```
+<img width="648" height="506" alt="Screenshot 2026-06-21 104435" src="https://github.com/user-attachments/assets/c36e0d43-72b2-4a89-bd12-87c70ea3f777" />
 
 ## Auto-Detection
 
@@ -97,6 +99,7 @@ Data is sourced from [ITRocket](https://itrocket.net), a public Cosmos ecosystem
 | Mocha Testnet | `server-6.itrocket.net/testnet/celestia` | `celestia-testnet-rpc.itrocket.net` |
 
 These are third-party community services by MegaNode. Always verify peer/RPC sources you trust before running state-sync or snapshot restore on mainnet.
+<img width="906" height="521" alt="Screenshot 2026-06-21 104615" src="https://github.com/user-attachments/assets/f6c7838d-b6bf-42ab-8201-fa81e4b46b9b" />
 
 ## Soft Reset vs Hard Reset
 
@@ -112,6 +115,7 @@ These are third-party community services by MegaNode. Always verify peer/RPC sou
 | Use when | Node stuck, minor corruption, want quick recovery | State-sync fails, severe corruption, want a known-good full state |
 
 **⚠️ Important — Double-signing risk:** Both Soft Reset and Hard Reset back up and restore `priv_validator_state.json` to help prevent double-signing after a reset. However, **always verify your validator is not running on another machine simultaneously** before restarting after any reset. Running the same validator key on two nodes at once can result in slashing.
+<img width="626" height="499" alt="Screenshot 2026-06-21 104452" src="https://github.com/user-attachments/assets/f9e27d24-2b0b-4644-bd4e-851ca5481239" />
 
 ## Safety
 
@@ -120,6 +124,7 @@ These are third-party community services by MegaNode. Always verify peer/RPC sou
 - **Hard Reset requires typing `YES`** — extra safety for destructive operations
 - **No private keys stored or transmitted** — the tool only reads local config and public RPC data
 - **Open source** — review the code before running
+<img width="534" height="379" alt="Screenshot 2026-06-21 104502" src="https://github.com/user-attachments/assets/4603d2ad-7c5f-457a-83ec-d3d572a36f68" />
 
 ## Testing Recommendation
 
@@ -128,6 +133,7 @@ These are third-party community services by MegaNode. Always verify peer/RPC sou
 - Auto-detected paths and ports match your setup
 - Your snapshot provider URL works with the extraction method used
 - The validator restarts correctly without double-signing
+<img width="957" height="479" alt="Screenshot 2026-06-21 104556" src="https://github.com/user-attachments/assets/7ac51056-397d-4899-ac5e-37467e74fba8" />
 
 ## Performance Tuning (Recommended)
 
