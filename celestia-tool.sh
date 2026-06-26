@@ -41,8 +41,8 @@ print_banner() {
     local pad1=$(( (width - 2 - ${#title}) ))
     local pad2=$(( (width - 2 - ${#author}) ))
     echo -e "${PURPLE}╔$(printf '═%.0s' $(seq 1 $width))╗${NC}"
-    echo -e "${PURPLE}║${NC} ${BOLD}${CYAN}${title}${NC}$(printf ' %.0s' $(seq 1 $pad1))${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC} ${BOLD}${author}${NC}$(printf ' %.0s' $(seq 1 $pad2))${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC} ${BOLD}${CYAN}${title}${NC}$(printf ' %.0s' $(seq 1 $pad1))${PURPLE} ║${NC}"
+    echo -e "${PURPLE}║${NC} ${BOLD}${author}${NC}$(printf ' %.0s' $(seq 1 $pad2))${PURPLE} ║${NC}"
     echo -e "${PURPLE}╚$(printf '═%.0s' $(seq 1 $width))╝${NC}"
     echo ""
 }
@@ -182,6 +182,14 @@ select_network() {
                 break
             fi
         done
+    fi
+
+    if ! systemctl list-units --full --all 2>/dev/null | grep -q "^${SERVICE_NAME}.service"; then
+        echo ""
+        read -rp "$(echo -e ${CYAN}'Enter your service name (or press Enter to use default "celestia-appd"): '${NC})" manual_service
+        if [ -n "$manual_service" ]; then
+            SERVICE_NAME="$manual_service"
+        fi
     fi
 }
 
